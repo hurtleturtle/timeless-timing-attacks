@@ -163,8 +163,8 @@ class H2Request:
         self.url = url
         o = urlparse(url)
         self.scheme = o.scheme
-        self.host = o.netloc
-        self.port = o.port or 443 if self.scheme == 'https' else 80
+        self.host = o.hostname
+        self.port = o.port or (443 if self.scheme == 'https' else 80)
         self.path = o.path
         self.query = o.query
 
