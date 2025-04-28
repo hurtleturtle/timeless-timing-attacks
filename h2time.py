@@ -212,7 +212,7 @@ class H2Request:
 
 
 class H2Time:
-    def __init__(self, request1: H2Request, request2: H2Request, send_order_pattern="12", sequential=True, num_request_pairs=50, inter_request_time_ms=10, num_padding_params=40, timeout=5):
+    def __init__(self, request1: H2Request, request2: H2Request, send_order_pattern="12", sequential=True, num_request_pairs=50, inter_request_time_ms=10, num_padding_params=40, timeout=5, verify_cert=True):
         self.request1 = request1
         self.request2 = request2
         self.request1.create_padding_params(num_padding_params)
@@ -230,10 +230,11 @@ class H2Time:
         self.num_padding_params = num_padding_params
         self.sent_requests = []
         self.timeout = timeout
+        self.verify_cert = verify_cert
 
     async def __aenter__(self):
         _, self.protocol = await self.loop.create_connection(
-            lambda: H2Protocol(self._settings, self.loop), self.host, self.port, ssl=H2Time._get_http2_ssl_context() if self.scheme == 'https' else None, family=socket.AF_INET
+            lambda: H2Protocol(self._settings, self.loop), self.host, self.port, ssl=H2Time._get_http2_ssl_context(self.verify_cert) if self.scheme == 'https' else None, family=socket.AF_INET
         )
         return self
 
@@ -259,18 +260,17 @@ class H2Time:
         self.sent_requests.append((stream_id1, stream_id2))
 
     @staticmethod
-    def _get_http2_ssl_context():
+    def _get_http2_ssl_context(verify_cert=True):
         ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+        if not verify_cert:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
         ctx.options |= (
                 ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         )
         ctx.options |= ssl.OP_NO_COMPRESSION
         ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
         ctx.set_alpn_protocols(["h2", "http/1.1"])
-        try:
-            ctx.set_npn_protocols(["h2", "http/1.1"])
-        except NotImplementedError:
-            pass
         return ctx
 
     async def run_attack(self):
