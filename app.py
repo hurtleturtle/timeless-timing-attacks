@@ -38,7 +38,7 @@ async def global_exception_handler(request, exc):
 async def process_data(data: str, request_id: str) -> str:
     """Simulate some async processing on the input data."""
     password = "0123ABCD"
-    delay_increment = 0.2
+    delay_increment = 0.00002
     
     # Pad data with '$' if shorter than password
     padded_data = data.ljust(len(password), '$')
@@ -48,7 +48,7 @@ async def process_data(data: str, request_id: str) -> str:
         if test_char == pw_char:
             # Increase delay for each correct character
             await asyncio.sleep(delay_increment)
-            logger.info(f"[{request_id}] Correct char at position {i}, waiting {delay_increment:.3f}s")
+            logger.info(f"[{request_id}] Correct char at position {i}, waiting {delay_increment:.6f}s")
         else:
             # Immediate return for incorrect characters
             logger.info(f"[{request_id}] Incorrect char at position {i}")
