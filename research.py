@@ -53,8 +53,8 @@ async def perform_timing_attack(token_prefix: str) -> set:
                     if r1_first_percent > 60:  # More than 60% of the time
                         potential_chars.add(char)
                         
-                    # If r1 comes first 100% of the time, it's almost certainly correct
-                    if r1_first_percent == 100:
+                    # If r1 comes first 90% of the time, it's almost certainly correct
+                    if r1_first_percent >= 90:
                         return [(char, f'{r1_first_percent:.1f}%')]
     
     # Sort and log potential characters by response order percentage
