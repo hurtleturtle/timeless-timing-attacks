@@ -38,7 +38,7 @@ async def global_exception_handler(request, exc):
 async def process_data(data: str, request_id: str) -> str:
     """Simulate some async processing on the input data."""
     password = "0123ABCD"
-    delay_increment = 0.00002
+    delay_increment = 0.00002 # 20 microseconds
     
     # Pad data with '$' if shorter than password
     padded_data = data.ljust(len(password), '$')
@@ -54,7 +54,6 @@ async def process_data(data: str, request_id: str) -> str:
             logger.info(f"[{request_id}] Incorrect char at position {i}")
             return "Incorrect"
     
-    # Additional delay for completely correct password
     logger.info(f"[{request_id}] All chars correct: {data}")
     return "Correct"
 
